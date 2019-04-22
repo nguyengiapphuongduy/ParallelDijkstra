@@ -1,7 +1,27 @@
+/* Parallel Dijkstra single source shortest-path algorithm
+
+@author: 1610473
+
+compile:
+mpicc -g -Wall -o mpi_Dijkstra mpi_Dijkstra.c
+
+execute:
+mpiexec -n 2 ./mpi_Dijkstra < input.txt
+
+INPUT: text file
+line 1: number of vertices (n)
+line 2 to n + 1: n integer represent the adjacency matrix
+
+ */
+
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <limits.h>
+#include <string.h>
+
+#define INF 1073741823 /* = (2^30 - 1) ~ INT_MAX/2 */
+#define NIL -1
+#define ZERONIL -2
 
 typedef struct {
 	int vertex;
@@ -9,6 +29,8 @@ typedef struct {
 	int path;
 } element;
 
+
+/* Heap definitions */
 void heapdown(element *arr, int size, int idx) {
 	int next;
 	while (2*idx + 1 < size) {
@@ -33,18 +55,32 @@ void buildheap(element *arr, int size) {
 	}
 }
 
-element pop(element *arr, int *size) {
-	element t = arr[0];
-	arr[0] = arr[*size - 1];
-	heapdown(arr, --*size, 0);
+void pop(element *arr, int *size) {
+	if (*size > 0) {
+		element t = arr[0];
+		arr[0] = arr[*size - 1];
+		arr[*size - 1] = t;
+		heapdown(arr, --*size, 0);
+	}
+}
+/* End of heap definitions */
+
+int printpath(element* arr, int v) {
+	if (v < 0) {
+		if (v == ZERONIL) return 1;
+		else return 0;
+	}
+	int t = printpath(arr, arr[v].path);
+	if (t == 1) printf(" %d", v);
 	return t;
 }
+
 
 int main(int argc, char** argv) {
 
 	int rank, numProc;
 	int i, j, n, *graph;
-	element *dlist, *local;
+	element *dlist, *local, *queue;
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -66,60 +102,84 @@ int main(int argc, char** argv) {
 	if (rank == 0) {
 		for (i = 0; i < n; i++) {
 			for (j = 0; j < n; j++) {
-				scanf("%d", &graph[n*i + j]);
+				char *r = (char *)malloc(64*sizeof(char));
+				scanf("%s", r);
+				if (strcmp(r, "INFINITY") == 0) {
+					graph[n*i + j] = INF;
+				} else {
+					graph[n*i + j] = atoi(r);
+				}
 			}
 		}
 		dlist = (element *)malloc(n*sizeof(element));
 		for (i = 0; i < n; i++) {
 			dlist[i].vertex = i;
-			dlist[i].distance = INT_MAX;
-			dlist[i].path = -1; // nil
+			dlist[i].distance = INF;
+			dlist[i].path = NIL;
 		}
 		dlist[0].distance = 0;
+		dlist[0].path = ZERONIL;
 	}
 	MPI_Bcast(graph, n*n, MPI_INT, 0, MPI_COMM_WORLD);
 
 	int length = n/numProc;
 	local = (element *)malloc(length*sizeof(element));
+	queue = (element *)malloc(length*sizeof(element));
 	MPI_Scatter(dlist, length, dtQueueElement, local, length, dtQueueElement, 0, MPI_COMM_WORLD);
+	memcpy(queue, local, length*sizeof(element));
 
-	/* Initialize to run Dijkstra */
-	buildheap(local, length);
-	// printf("Process %d reached the barrier, i = %d\n", rank, i);
-	// MPI_Barrier(MPI_COMM_WORLD);
+	/* Initialization to run Dijkstra */
+	int offset = local[0].vertex;
+	buildheap(queue, length);
 
-	for (i = 0; i < numProc; i++) {
-		printf("Process %d reached the barrier, i = %d\n", rank, i);
+	for (i = 0; i < n; i++) {
 		MPI_Barrier(MPI_COMM_WORLD);
 
 		/* find the id of the global minimum weight */
-		int localMin[2];
-		localMin[0] = local[0].vertex;
-		localMin[1] = local[0].distance;
+		int queueMin[2]; // struct {distance, vertex}
+		queueMin[0] = queue[0].distance;
+		queueMin[1] = queue[0].vertex;
 		if (length == 0) {
-			localMin[1] = INT_MAX;
-		} // ignore localMin from a process if its queue is empty
-		int globalMin[2];
-		printf("Process %d send localMin v = %d, d = %d\n", rank, localMin[0], localMin[1]);
-		MPI_Allreduce(localMin, globalMin, 1, MPI_2INT, MPI_MINLOC, MPI_COMM_WORLD);
-		printf("Process %d received globalMin v = %d, d = %d\n", rank, globalMin[0], globalMin[1]);
+			queueMin[0] = INF + 1;
+			queueMin[1] = NIL;
+		} // ignore queueMin from a process if its queue is empty
+
+		int globalMin[2]; // struct {distance, vertex}
+		MPI_Allreduce(queueMin, globalMin, 1, MPI_2INT, MPI_MINLOC, MPI_COMM_WORLD);
+
+		/* Dijkstra Algorithm as normal */
 		for (j = 0; j < length; j++) {
-			if (local[j].distance > globalMin[1] + graph[n*globalMin[0] + j]) {
-				local[j].distance = globalMin[1] + graph[n*globalMin[0] + j];
-				local[j].path = globalMin[0];
+			if (queue[j].distance > globalMin[0] + graph[n*globalMin[1] + queue[j].vertex]) {
+				queue[j].distance = globalMin[0] + graph[n*globalMin[1] + queue[j].vertex];
+				queue[j].path = globalMin[1];
 			}
 		}
-		if (globalMin[0] == localMin[0]) {
-			pop(local, &length);
-			printf("Process %d popped vertex %d\n", rank, localMin[0]);
+		if (globalMin[1] == queueMin[1]) {
+			pop(queue, &length);
 		}
 	}
 
-	MPI_Gather(dlist, length, dtQueueElement, local, length, dtQueueElement, 0, MPI_COMM_WORLD);
+	/* Parse the queue (suffered indices) to the local (arranged indices) */
+	length = n/numProc;
+	for (i = 0; i < length; i++) {
+		int idx = queue[i].vertex - offset;
+		local[idx].distance = queue[i].distance;
+		local[idx].path = queue[i].path;
+	}
+
+	/* Gather and print result */
 	MPI_Barrier(MPI_COMM_WORLD);
+	MPI_Gather(local, length, dtQueueElement, dlist, length, dtQueueElement, 0, MPI_COMM_WORLD);
 	if (rank == 0) {
-		for (i = 0; i < n; i++) {
-			printf("Vertex 0 to %d: distance = %d, previous vertex = %d\n", dlist[i].vertex, dlist[i].distance, dlist[i].path);
+		printf("Shortest path from vertex 0 to:\n");
+		for (i = 1; i < n; i++) {
+			printf("%d: distance = ", dlist[i].vertex);
+			if (dlist[i].distance >= INF) printf("INFINITY");
+			else printf("%d", dlist[i].distance);
+			printf(", path =");
+			int r = printpath(dlist, i);
+			if (r == 1) printf("\n");
+			else printf(" NOTFOUND\n");
 		}
 	}
 
