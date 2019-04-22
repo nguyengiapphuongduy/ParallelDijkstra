@@ -1,6 +1,6 @@
 /* Parallel Dijkstra single source shortest-path algorithm
 
-@author: 1610473
+@author: 1610473 Nguyen Giap Phuong Duy
 
 compile:
 mpicc -g -Wall -o mpi_Dijkstra mpi_Dijkstra.c
