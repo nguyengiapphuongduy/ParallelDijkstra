@@ -10,7 +10,14 @@ mpiexec -n 2 ./mpi_Dijkstra < input.txt
 
 INPUT: text file
 line 1: number of vertices (n)
-line 2 to n + 1: n integer represent the adjacency matrix
+line 2 to n + 1: n integer represent the adjacency matrix,
+INFINITY if no edge. Example:
+
+4
+0 INFINITY 2 INFINITY
+1 0 INFINITY INFINITY
+2 3 0 INFINITY
+INFINITY INFINITY INFINITY 0
 
  */
 
@@ -133,7 +140,7 @@ int main(int argc, char** argv) {
 	buildheap(queue, length);
 
 	for (i = 0; i < n; i++) {
-		MPI_Barrier(MPI_COMM_WORLD);
+		// MPI_Barrier(MPI_COMM_WORLD);
 
 		/* find the id of the global minimum weight */
 		int queueMin[2]; // struct {distance, vertex}
