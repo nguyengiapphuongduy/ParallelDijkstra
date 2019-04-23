@@ -143,16 +143,16 @@ int main(int argc, char** argv) {
 		// MPI_Barrier(MPI_COMM_WORLD);
 
 		/* find the id of the global minimum weight */
-		int queueMin[2]; // struct {distance, vertex}
-		queueMin[0] = queue[0].distance;
-		queueMin[1] = queue[0].vertex;
+		int localMin[2]; // struct {distance, vertex}
+		localMin[0] = queue[0].distance;
+		localMin[1] = queue[0].vertex;
 		if (length == 0) {
-			queueMin[0] = INF + 1;
-			queueMin[1] = NIL;
-		} // ignore queueMin from a process if its queue is empty
+			localMin[0] = INF + 1;
+			localMin[1] = NIL;
+		} // ignore localMin from a process if its queue is empty
 
 		int globalMin[2]; // struct {distance, vertex}
-		MPI_Allreduce(queueMin, globalMin, 1, MPI_2INT, MPI_MINLOC, MPI_COMM_WORLD);
+		MPI_Allreduce(localMin, globalMin, 1, MPI_2INT, MPI_MINLOC, MPI_COMM_WORLD);
 
 		/* Dijkstra Algorithm as normal */
 		for (j = 0; j < length; j++) {
@@ -161,7 +161,7 @@ int main(int argc, char** argv) {
 				queue[j].path = globalMin[1];
 			}
 		}
-		if (globalMin[1] == queueMin[1]) {
+		if (globalMin[1] == localMin[1]) {
 			pop(queue, &length);
 		}
 	}
